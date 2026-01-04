@@ -2,21 +2,29 @@
 
 This project provides a plug-in based trading diagnostic engine with a FastAPI backend, Next.js frontend, and Postgres storage.
 
-## Quick Start
+## Quick Start (Docker)
 
-1. Set a master key (AES-GCM, 32 bytes base64):
+1. Create `.env` in repo root (example):
 
 ```
-export MASTER_KEY="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+MASTER_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+API_TOKEN=devtoken
+DEEPSEEK_API_KEY=
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
 ```
 
 2. Start services:
 
 ```
-docker-compose up --build
+docker compose up --build
 ```
 
-Backend runs on `http://localhost:8000`, frontend on `http://localhost:3000`.
+Backend runs on `http://localhost:18000`, frontend on `http://localhost:13000`.
+
+## Full Setup Guide
+
+See `SETUP.md` for Windows/macOS/Linux prerequisites, Docker and local dev steps, and environment variable reference.
 
 ## Security Notes
 
