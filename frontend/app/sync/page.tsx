@@ -24,16 +24,23 @@ export default function SyncPage() {
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [message, setMessage] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [file, setFile] = useState<File | null>(null);
 
   useEffect(() => {
-    getAccounts().then((data) => {
-      setAccounts(data);
-      if (data.length) {
-        setAccountId(data[0].id);
-      }
+    getAccounts()
+      .then((data) => {
+        setAccounts(data);
+        if (data.length) {
+          setAccountId(data[0].id);
+        }
+      })
+      .catch((err) => {
+        setLoadError(`Load accounts failed: ${(err as Error).message}`);
+      });
+    refreshRuns().catch((err) => {
+      setLoadError(`Load sync runs failed: ${(err as Error).message}`);
     });
-    refreshRuns();
   }, []);
 
   useEffect(() => {
@@ -121,12 +128,14 @@ export default function SyncPage() {
               value={accountId}
               onChange={(event) => setAccountId(event.target.value)}
             >
+              {!accounts.length && <option value="">暂无账户</option>}
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
                   {account.label}
                 </option>
               ))}
             </select>
+            {loadError && <div className="mt-2 text-xs text-ember">{loadError}</div>}
           </label>
           <label className="block">
             <span className="text-xs uppercase tracking-wide text-slate">预设范围</span>

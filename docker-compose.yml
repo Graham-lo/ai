@@ -18,6 +18,10 @@ services:
       API_TOKEN: ${API_TOKEN:-devtoken}
       APP_TIMEZONE: Asia/Singapore
       BASE_CURRENCY: USDT
+      ENABLE_OI_FETCH: "false"
+      MARKET_SYNC_INTERVAL_MINUTES: "60"
+      MARKET_SYNC_PRESET: "last_30d"
+      MARKET_SYNC_SYMBOLS: "BTCUSDT,ETHUSDT"
     depends_on:
       - postgres
     ports:

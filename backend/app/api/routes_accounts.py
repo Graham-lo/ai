@@ -1,13 +1,30 @@
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_token
 from app.core.crypto import encrypt_dict
 from app.core.logging import redact_dict
+from app.db.session import SessionLocal
 from app.db.models import Account
 from app.schemas.account import AccountCreate, AccountOut, AccountRotate, AccountUpdate
+from app.schemas.report import ReportRequest
+from app.services.sync_service import run_sync
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
+
+
+def _run_initial_sync(account_id: str, exchange_id: str) -> None:
+    session = SessionLocal()
+    try:
+        payload = ReportRequest(account_ids=[account_id], exchange_id=exchange_id, preset="all_time")
+        run_sync(session, payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Initial sync failed for account %s: %s", account_id, exc)
+    finally:
+        session.close()
 
 
 @router.get("", dependencies=[Depends(require_token)])
@@ -17,7 +34,11 @@ async def list_accounts(db: Session = Depends(get_db)):
 
 
 @router.post("", dependencies=[Depends(require_token)])
-async def create_account(payload: AccountCreate, db: Session = Depends(get_db)):
+async def create_account(
+    payload: AccountCreate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     encrypted = encrypt_dict(payload.credentials)
     account = Account(
         exchange_id=payload.exchange_id,
@@ -30,6 +51,7 @@ async def create_account(payload: AccountCreate, db: Session = Depends(get_db)):
     db.add(account)
     db.commit()
     db.refresh(account)
+    background_tasks.add_task(_run_initial_sync, str(account.id), account.exchange_id)
     return AccountOut.model_validate(account).model_dump()
 
 
@@ -50,12 +72,18 @@ async def update_account(account_id: str, payload: AccountUpdate, db: Session = 
 
 
 @router.post("/{account_id}/rotate-credentials", dependencies=[Depends(require_token)])
-async def rotate_credentials(account_id: str, payload: AccountRotate, db: Session = Depends(get_db)):
+async def rotate_credentials(
+    account_id: str,
+    payload: AccountRotate,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
     account = db.get(Account, account_id)
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
     account.credentials_encrypted = encrypt_dict(payload.credentials)
     db.commit()
+    background_tasks.add_task(_run_initial_sync, str(account.id), account.exchange_id)
     return {"status": "ok", "credentials": redact_dict(payload.credentials)}
 
 

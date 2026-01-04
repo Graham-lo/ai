@@ -12,3 +12,6 @@ python-dateutil==2.9.0.post0
 pytest==8.3.2
 python-multipart==0.0.9
 openai==1.58.1
+pandas==2.2.2
+numpy==2.1.2
+pyarrow==18.0.0

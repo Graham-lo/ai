@@ -72,6 +72,8 @@ def run_sync(db: Session, payload: ReportRequest) -> dict:
             options = dict(account.options or {})
             options["account_id"] = str(account.id)
             options["exchange_id"] = account.exchange_id
+            if account.account_types:
+                options["account_type"] = account.account_types[0]
             per_start, per_end = _account_range(start_dt, end_dt, account.created_at)
             if per_start and per_end and per_start >= per_end:
                 continue

@@ -17,10 +17,16 @@ export default function AccountsPage() {
   const [error, setError] = useState<string>("");
 
   useEffect(() => {
-    Promise.all([getPlugins(), getAccounts()]).then(([pluginData, accountData]) => {
-      setPlugins(pluginData);
-      setAccounts(accountData);
-    });
+    getPlugins()
+      .then(setPlugins)
+      .catch((err) => {
+        setError(`Load plugins failed: ${(err as Error).message}`);
+      });
+    getAccounts()
+      .then(setAccounts)
+      .catch((err) => {
+        setError(`Load accounts failed: ${(err as Error).message}`);
+      });
   }, []);
 
   const manifest = useMemo(
@@ -133,6 +139,12 @@ export default function AccountsPage() {
                     </button>
                   ))}
                 </div>
+                {manifest.exchange_id === "okx" && (
+                  <p className="mt-2 text-xs text-slate">
+                    OKX 类型提示：USDT 永续/交割合约选 linear，币本位合约选 inverse，现货选 spot。可在 OKX
+                    App/网页「交易 → 持仓 → 合约类型」确认。
+                  </p>
+                )}
               </div>
             )}
             <label className="block">

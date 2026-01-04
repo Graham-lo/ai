@@ -4,8 +4,16 @@ from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal
 
+from app.db.models import BybitTradeLog
 from app.schemas.ledger import Cashflow, Fill
-from app.services.metrics import compute_daily_series, compute_metrics, max_drawdown
+from app.services.metrics import (
+    compute_daily_series,
+    compute_daily_series_from_trade_logs,
+    compute_metrics,
+    compute_metrics_from_trade_logs,
+    max_drawdown,
+    _trade_rows_from_logs,
+)
 
 
 def detect_anomalies(fills: list[Fill], cashflows: list[Cashflow]) -> list[dict]:
@@ -21,11 +29,9 @@ def detect_anomalies(fills: list[Fill], cashflows: list[Cashflow]) -> list[dict]
             {
                 "code": "FEE_EATS_PROFIT",
                 "severity": "high",
-                "title": "撮合手续费侵蚀利润",
                 "window": window,
                 "evidence": {"trading_fees": metrics.get("trading_fees"), "gross_profit": gross_profit},
                 "impact": {"amount": metrics.get("trading_fees"), "share_of_cost": 0.3},
-                "suggested_fix": "降低换手或优化费率等级，检查 maker 比例。",
             }
         )
 
@@ -34,11 +40,12 @@ def detect_anomalies(fills: list[Fill], cashflows: list[Cashflow]) -> list[dict]
             {
                 "code": "FUNDING_DRAG",
                 "severity": "medium",
-                "title": "资金费率拖累偏高",
                 "window": window,
-                "evidence": {"funding_pnl": metrics.get("funding_pnl"), "funding_bps": metrics.get("funding_intensity_bps")},
+                "evidence": {
+                    "funding_pnl": metrics.get("funding_pnl"),
+                    "funding_bps": metrics.get("funding_intensity_bps"),
+                },
                 "impact": {"amount": metrics.get("funding_pnl"), "share_of_cost": 0.2},
-                "suggested_fix": "降低资金费率暴露或使用现货对冲。",
             }
         )
 
@@ -52,11 +59,9 @@ def detect_anomalies(fills: list[Fill], cashflows: list[Cashflow]) -> list[dict]
                 {
                     "code": "TAIL_LOSS_DOMINATES",
                     "severity": "medium",
-                    "title": "尾部亏损主导回撤",
                     "window": window,
                     "evidence": {"top3_loss": float(tail_loss), "mdd": float(mdd)},
                     "impact": {"amount": float(tail_loss), "share_of_drawdown": float(tail_loss / mdd)},
-                    "suggested_fix": "复盘对应日期的风险控制与止损执行。",
                 }
             )
 
@@ -80,11 +85,87 @@ def detect_anomalies(fills: list[Fill], cashflows: list[Cashflow]) -> list[dict]
                 {
                     "code": "CONCENTRATION_RISK",
                     "severity": "low",
-                    "title": "单一标的贡献过度集中",
                     "window": window,
                     "evidence": {"symbol": top_symbol, "share": float(abs(top_amount) / total)},
                     "impact": {"amount": float(top_amount), "share_of_drawdown": float(abs(top_amount) / total)},
-                    "suggested_fix": "降低集中度或进行对冲。",
+                }
+            )
+
+    return anomalies
+
+
+def detect_anomalies_from_trade_logs(trade_logs: list[BybitTradeLog]) -> list[dict]:
+    metrics = compute_metrics_from_trade_logs(trade_logs)
+    daily = compute_daily_series_from_trade_logs(trade_logs)
+    anomalies: list[dict] = []
+
+    window = _period_window_logs(trade_logs)
+
+    gross_profit = max(metrics.get("realized_pnl", 0), 0)
+    if gross_profit and metrics.get("trading_fees", 0) > 0.3 * gross_profit:
+        anomalies.append(
+            {
+                "code": "FEE_EATS_PROFIT",
+                "severity": "high",
+                "window": window,
+                "evidence": {"trading_fees": metrics.get("trading_fees"), "gross_profit": gross_profit},
+                "impact": {"amount": metrics.get("trading_fees"), "share_of_cost": 0.3},
+            }
+        )
+
+    if metrics.get("funding_pnl", 0) < 0 and metrics.get("funding_intensity_bps", 0) > 5:
+        anomalies.append(
+            {
+                "code": "FUNDING_DRAG",
+                "severity": "medium",
+                "window": window,
+                "evidence": {
+                    "funding_pnl": metrics.get("funding_pnl"),
+                    "funding_bps": metrics.get("funding_intensity_bps"),
+                },
+                "impact": {"amount": metrics.get("funding_pnl"), "share_of_cost": 0.2},
+            }
+        )
+
+    if daily:
+        daily_net = [v.net_after_fees for v in daily.values()]
+        mdd = max_drawdown(daily_net)
+        loss_days = sorted(daily.items(), key=lambda kv: kv[1].net_after_fees)[:3]
+        tail_loss = sum([abs(x[1].net_after_fees) for x in loss_days])
+        if mdd > 0 and tail_loss / mdd > Decimal("0.5"):
+            anomalies.append(
+                {
+                    "code": "TAIL_LOSS_DOMINATES",
+                    "severity": "medium",
+                    "window": window,
+                    "evidence": {"top3_loss": float(tail_loss), "mdd": float(mdd)},
+                    "impact": {"amount": float(tail_loss), "share_of_drawdown": float(tail_loss / mdd)},
+                }
+            )
+
+        overtrade = _detect_overtrading(daily)
+        if overtrade:
+            anomalies.append(overtrade)
+
+        revenge = _detect_revenge_cluster(daily)
+        if revenge:
+            anomalies.append(revenge)
+
+    symbol_pnl = defaultdict(Decimal)
+    for row in _trade_rows_from_logs(trade_logs):
+        if row.contract:
+            symbol_pnl[row.contract] += Decimal(str(row.change or 0))
+    if symbol_pnl:
+        top_symbol, top_amount = max(symbol_pnl.items(), key=lambda kv: abs(kv[1]))
+        total = sum(abs(v) for v in symbol_pnl.values())
+        if total > 0 and abs(top_amount) / total > Decimal("0.7"):
+            anomalies.append(
+                {
+                    "code": "CONCENTRATION_RISK",
+                    "severity": "low",
+                    "window": window,
+                    "evidence": {"symbol": top_symbol, "share": float(abs(top_amount) / total)},
+                    "impact": {"amount": float(top_amount), "share_of_drawdown": float(abs(top_amount) / total)},
                 }
             )
 
@@ -93,6 +174,15 @@ def detect_anomalies(fills: list[Fill], cashflows: list[Cashflow]) -> list[dict]
 
 def _period_window(fills: list[Fill], cashflows: list[Cashflow]) -> dict:
     ts = [item.ts_utc for item in fills] + [item.ts_utc for item in cashflows]
+    if not ts:
+        return {}
+    start = min(ts)
+    end = max(ts)
+    return {"start": start.isoformat(), "end": end.isoformat()}
+
+
+def _period_window_logs(trade_logs: list[BybitTradeLog]) -> dict:
+    ts = [item.ts_utc for item in trade_logs]
     if not ts:
         return {}
     start = min(ts)
@@ -117,11 +207,9 @@ def _detect_overtrading(daily) -> dict | None:
         return {
             "code": "OVERTRADING_NO_EDGE",
             "severity": "medium",
-            "title": "换手上升但优势下降",
             "window": {"start": second[0].isoformat(), "end": second[-1].isoformat()},
             "evidence": {"turnover_up": float(second_turnover), "net_down": float(second_net - first_net)},
             "impact": {"amount": float(second_net - first_net), "share_of_cost": 0.1},
-            "suggested_fix": "降低交易频率或收紧入场条件。",
         }
     return None
 
@@ -143,10 +231,8 @@ def _detect_revenge_cluster(daily) -> dict | None:
         return {
             "code": "REVENGE_CLUSTER",
             "severity": "low",
-            "title": "亏损后交易频率激增",
             "window": {"start": next_day.isoformat(), "end": next_day.isoformat()},
             "evidence": {"next_day_trades": daily[next_day].trades, "median_trades": median_trades},
             "impact": {"amount": float(daily[next_day].net_after_fees), "share_of_cost": 0.05},
-            "suggested_fix": "大亏后暂停交易，加入冷静期规则。",
         }
     return None

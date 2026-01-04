@@ -11,6 +11,8 @@ class BybitClient:
         self.api_key = api_key
         self.api_secret = api_secret
         self.base_url = base_url.rstrip("/")
+        self.time_offset_ms = 0
+        self._sync_time()
 
     def _sign(self, params: dict[str, Any]) -> str:
         sorted_items = sorted(params.items())
@@ -20,15 +22,45 @@ class BybitClient:
     def _request(self, path: str, params: dict[str, Any]) -> dict[str, Any]:
         params = dict(params)
         params["api_key"] = self.api_key
-        params["timestamp"] = int(time.time() * 1000)
-        params["recv_window"] = 5000
-        params["sign"] = self._sign(params)
-        response = requests.get(f"{self.base_url}{path}", params=params, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-        if data.get("retCode") not in (0, None):
+        params["recv_window"] = 10000
+        for attempt in range(2):
+            params["timestamp"] = int(time.time() * 1000) + self.time_offset_ms
+            params["sign"] = self._sign(params)
+            response = requests.get(f"{self.base_url}{path}", params=params, timeout=20)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("retCode") in (0, None):
+                return data
+            if data.get("retCode") == 10002 and attempt == 0:
+                self._sync_time()
+                continue
             raise RuntimeError(f"Bybit error: {data}")
-        return data
+        raise RuntimeError("Bybit error: failed after timestamp resync")
+
+    def _sync_time(self) -> None:
+        server_ms = self._fetch_server_time_ms()
+        if server_ms is None:
+            return
+        local_ms = int(time.time() * 1000)
+        self.time_offset_ms = server_ms - local_ms
+
+    def _fetch_server_time_ms(self) -> int | None:
+        try:
+            response = requests.get(f"{self.base_url}/v5/market/time", timeout=10)
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException:
+            return None
+        if payload.get("retCode") not in (0, None):
+            return None
+        result = payload.get("result", {})
+        time_second = result.get("timeSecond")
+        if time_second is not None:
+            return int(time_second) * 1000
+        time_nano = result.get("timeNano")
+        if time_nano is not None:
+            return int(int(time_nano) / 1_000_000)
+        return None
 
     def fetch_executions(self, category: str, start: int | None, end: int | None, cursor: str | None) -> dict[str, Any]:
         params: dict[str, Any] = {"category": category, "limit": 200}

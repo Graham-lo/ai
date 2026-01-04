@@ -1,7 +1,9 @@
 from datetime import datetime
+import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_token
@@ -60,6 +62,31 @@ async def export_anomalies(report_run_id: str, db: Session = Depends(get_db)):
     if not report:
         raise HTTPException(status_code=404, detail="Report not found")
     return report.anomalies_json
+
+
+@router.get("/evidence.json", dependencies=[Depends(require_token)])
+async def export_evidence(report_run_id: str, db: Session = Depends(get_db)):
+    report = db.get(ReportRun, report_run_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.evidence_json:
+        return report.evidence_json
+    if report.evidence_path:
+        return json.loads(Path(report.evidence_path).read_text(encoding="utf-8"))
+    raise HTTPException(status_code=404, detail="Evidence not found")
+
+
+@router.get("/facts.parquet", dependencies=[Depends(require_token)])
+async def export_facts(report_run_id: str, db: Session = Depends(get_db)):
+    report = db.get(ReportRun, report_run_id)
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if not report.facts_path:
+        raise HTTPException(status_code=404, detail="Facts not found")
+    path = Path(report.facts_path)
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Facts file missing")
+    return FileResponse(path)
 
 
 @router.get("/report.md", response_class=PlainTextResponse, dependencies=[Depends(require_token)])

@@ -18,5 +18,6 @@ frontend/.next/
 
 bybit_log_export.csv
 output/
+outputs/
 dist/
 build/

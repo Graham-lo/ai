@@ -8,7 +8,7 @@ from sqlalchemy import insert
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
-from app.db.models import Cashflow, Fill
+from app.db.models import BybitTradeLog, Cashflow, Fill
 
 
 BYBIT_COLUMNS = [
@@ -31,7 +31,12 @@ BYBIT_COLUMNS = [
 ]
 
 
-def parse_bybit_transaction_log(content: str, account_id, exchange_id: str, account_type: str) -> tuple[list[Fill], list[Cashflow]]:
+def parse_bybit_transaction_log(
+    content: str,
+    account_id,
+    exchange_id: str,
+    account_type: str,
+) -> tuple[list[Fill], list[Cashflow]]:
     fills: list[Fill] = []
     cashflows: list[Cashflow] = []
     for row in _iter_bybit_rows(content):
@@ -80,6 +85,40 @@ def parse_bybit_transaction_log(content: str, account_id, exchange_id: str, acco
     return fills, cashflows
 
 
+def parse_bybit_transaction_log_rows(
+    content: str,
+    account_id,
+    exchange_id: str,
+    account_type: str,
+) -> list[BybitTradeLog]:
+    rows: list[BybitTradeLog] = []
+    for row in _iter_bybit_rows(content):
+        rows.append(
+            BybitTradeLog(
+                account_id=account_id,
+                exchange_id=exchange_id,
+                account_type=account_type,
+                currency=(row.get("Currency") or "").strip(),
+                contract=(row.get("Contract") or "").strip(),
+                type=(row.get("Type") or "").strip(),
+                direction=(row.get("Direction") or "").strip(),
+                quantity=(row.get("Quantity") or "").strip(),
+                position=(row.get("Position") or "").strip(),
+                filled_price=(row.get("Filled Price") or "").strip(),
+                funding=(row.get("Funding") or "").strip(),
+                fee_paid=(row.get("Fee Paid") or "").strip(),
+                cash_flow=(row.get("Cash Flow") or "").strip(),
+                change=(row.get("Change") or "").strip(),
+                wallet_balance=(row.get("Wallet Balance") or "").strip(),
+                action=(row.get("Action") or "").strip(),
+                order_id=(row.get("OrderId") or "").strip(),
+                trade_id=(row.get("TradeId") or "").strip(),
+                ts_utc=_parse_time(row.get("Time")),
+            )
+        )
+    return rows
+
+
 def _iter_bybit_rows(content: str) -> Iterable[dict]:
     reader = csv.DictReader(StringIO(content))
     if reader.fieldnames and "Type" in reader.fieldnames:
@@ -102,6 +141,13 @@ def upsert_imported_data(db: Session, fills: Iterable[Fill], cashflows: Iterable
     inserted_cashflows = _insert_ignore(db, Cashflow, cash_rows)
     db.commit()
     return {"fills": inserted_fills, "cashflows": inserted_cashflows}
+
+
+def upsert_bybit_trade_logs(db: Session, rows: Iterable[BybitTradeLog]) -> int:
+    log_rows = [_bybit_log_row(row) for row in rows]
+    inserted = _insert_ignore(db, BybitTradeLog, log_rows)
+    db.commit()
+    return inserted
 
 
 def _parse_time(value: str | None) -> datetime:
@@ -175,4 +221,28 @@ def _cash_row(cf: Cashflow) -> dict:
         "asset": cf.asset,
         "symbol": cf.symbol,
         "flow_id": cf.flow_id,
+    }
+
+
+def _bybit_log_row(log: BybitTradeLog) -> dict:
+    return {
+        "account_id": log.account_id,
+        "exchange_id": log.exchange_id,
+        "account_type": log.account_type,
+        "currency": log.currency,
+        "contract": log.contract,
+        "type": log.type,
+        "direction": log.direction,
+        "quantity": log.quantity,
+        "position": log.position,
+        "filled_price": log.filled_price,
+        "funding": log.funding,
+        "fee_paid": log.fee_paid,
+        "cash_flow": log.cash_flow,
+        "change": log.change,
+        "wallet_balance": log.wallet_balance,
+        "action": log.action,
+        "order_id": log.order_id,
+        "trade_id": log.trade_id,
+        "ts_utc": log.ts_utc,
     }

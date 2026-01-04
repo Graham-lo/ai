@@ -44,6 +44,18 @@ python -m app.cli sync --preset last_30d --exchange bybit
 python -m app.cli report --preset last_month --net-mode fees_plus_funding --exchange all
 ```
 
+## Binance Attribution Module
+
+Generate a text-only monthly attribution report using Binance USDⓈ-M Futures as market baseline:
+
+```
+python -m main --bybit_csv path\to\bybit_trade_log.csv --start 2025-08-01 --end 2026-01-03 --symbols ETHUSDT,SOLUSDT,BTCUSDT --report monthly
+```
+
+Outputs:
+- `outputs/trade_attribution_YYYYMM.parquet`
+- `outputs/report_YYYYMM.md`
+
 ## Adding a New Plugin
 
 1. Copy `backend/app/plugins/template` to a new folder.

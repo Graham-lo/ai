@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -7,7 +7,15 @@ import { DateRangePicker } from "../components/DateRangePicker";
 import { NetModeToggle } from "../components/NetModeToggle";
 import { PresetSelector } from "../components/PresetSelector";
 import { ReportViewer } from "../components/ReportViewer";
-import { generateDeepseekReport, getAccounts, runReport } from "../../lib/api";
+import {
+  generateDeepseekReportAsync,
+  getAccounts,
+  getDeepseekStatus,
+  getMarketCoverage,
+  getReport,
+  getReportStatus,
+  runReportAsync,
+} from "../../lib/api";
 import { Account, ReportRun } from "../../lib/types";
 
 export default function ReportsPage() {
@@ -20,9 +28,17 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [llmApiKey, setLlmApiKey] = useState("");
-  const [viewMode, setViewMode] = useState<"raw" | "deepseek">("raw");
+  const [viewMode, setViewMode] = useState<"deepseek">("deepseek");
   const [llmLoading, setLlmLoading] = useState(false);
   const [llmError, setLlmError] = useState("");
+  const [progress, setProgress] = useState<{
+    status: string;
+    stage: string;
+    percent: number;
+    message: string;
+    error?: string | null;
+  } | null>(null);
+  const [marketWarning, setMarketWarning] = useState<string>("");
 
   useEffect(() => {
     getAccounts().then(setAccounts);
@@ -49,6 +65,8 @@ export default function ReportsPage() {
   async function handleRunReport() {
     setLoading(true);
     setError("");
+    setProgress(null);
+    setMarketWarning("");
     try {
       const payload: Record<string, unknown> = { net_mode: netMode };
       if (selectedAccount !== "all") {
@@ -60,13 +78,64 @@ export default function ReportsPage() {
         payload.start = dates.start;
         payload.end = dates.end;
       }
-      const data = await runReport(payload);
-      setReport(data);
-      setViewMode("raw");
+      let includeMarket = true;
+      try {
+        const coverage = await getMarketCoverage(payload);
+        if (!coverage.has_market) {
+          includeMarket = false;
+          const missingKeys = Object.keys(coverage.missing || {}).join(", ");
+          setMarketWarning(
+            missingKeys
+              ? `行情数据缺口：${missingKeys}，将仅生成成本报告。`
+              : "行情数据不足，将仅生成成本报告。"
+          );
+        }
+      } catch (coverageErr) {
+        includeMarket = false;
+        setMarketWarning(`行情覆盖检查失败，已降级为成本报告：${(coverageErr as Error).message}`);
+      }
+      payload.include_market = includeMarket;
+      const startRes = await runReportAsync(payload);
+      setProgress({
+        status: startRes.status,
+        stage: startRes.stage,
+        percent: startRes.percent,
+        message: startRes.message,
+        error: startRes.error,
+      });
+      const reportId = startRes.report_id;
+      const timer = window.setInterval(async () => {
+        try {
+          const next = await getReportStatus(reportId);
+          setProgress({
+            status: next.status,
+            stage: next.stage,
+            percent: next.percent,
+            message: next.message,
+            error: next.error,
+          });
+          if (next.status === "completed") {
+            const data = await getReport(reportId);
+            setReport(data);
+            window.clearInterval(timer);
+            setLoading(false);
+          }
+          if (next.status === "failed") {
+            setError(next.error || "报告生成失败。");
+            window.clearInterval(timer);
+            setLoading(false);
+          }
+        } catch (pollErr) {
+          setError((pollErr as Error).message);
+          window.clearInterval(timer);
+          setLoading(false);
+        }
+      }, 2000);
     } catch (err) {
       setError((err as Error).message);
-    } finally {
       setLoading(false);
+    } finally {
+      // Loading will be cleared by polling loop.
     }
   }
 
@@ -82,25 +151,52 @@ export default function ReportsPage() {
     setLlmLoading(true);
     setLlmError("");
     try {
-      const data = await generateDeepseekReport(report.id, llmApiKey, refresh);
-      setReport((prev) =>
-        prev
-          ? {
-              ...prev,
-              report_md_llm: data.report_md_llm || undefined,
-              llm_model: data.llm_model,
-              llm_generated_at: data.llm_generated_at,
-              llm_status: data.llm_status,
-              llm_error: data.llm_error,
-            }
-          : prev,
-      );
-      setViewMode("deepseek");
+      await generateDeepseekReportAsync(report.id, llmApiKey, refresh);
+      const timer = window.setInterval(async () => {
+        try {
+          const status = await getDeepseekStatus(report.id);
+          if (status.llm_status === "success") {
+            const data = await getReport(report.id);
+            setReport((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    report_md_llm: data.report_md_llm || undefined,
+                    llm_model: data.llm_model,
+                    llm_generated_at: data.llm_generated_at,
+                    llm_status: data.llm_status,
+                    llm_error: data.llm_error,
+                  }
+                : prev,
+            );
+            setViewMode("deepseek");
+            window.clearInterval(timer);
+            setLlmLoading(false);
+          } else if (status.llm_status === "failed") {
+            setLlmError(status.llm_error || "DeepSeek 生成失败。");
+            window.clearInterval(timer);
+            setLlmLoading(false);
+          }
+        } catch (pollErr) {
+          setLlmError((pollErr as Error).message);
+          window.clearInterval(timer);
+          setLlmLoading(false);
+        }
+      }, 2000);
     } catch (err) {
       setLlmError((err as Error).message);
-    } finally {
       setLlmLoading(false);
+    } finally {
+      // Loading will be cleared by polling loop.
     }
+  }
+
+  function stripEvidenceMarkers(content: string): string {
+    const withoutBrackets = content.replace(/\[[^\]]+\]/g, "");
+    return withoutBrackets.replace(
+      /\(([^)]*(account_summary|market_|behavior_flags|performance_by_regime|anomalies|counterfactual|notes|schema_version)[^)]*)\)/g,
+      ""
+    );
   }
 
   return (
@@ -136,6 +232,12 @@ export default function ReportsPage() {
             {loading ? "生成中..." : "生成报告"}
           </button>
           {error && <span className="text-sm text-ember">{error}</span>}
+          {marketWarning && <span className="text-xs text-amber-700">{marketWarning}</span>}
+          {progress && (
+            <span className="text-xs text-slate">
+              {progress.percent}% · {progress.stage} · {progress.message}
+            </span>
+          )}
         </div>
         <div className="mt-6 grid gap-4 md:grid-cols-3">
           <label className="block">
@@ -158,6 +260,9 @@ export default function ReportsPage() {
             {llmError && <span className="text-sm text-ember">{llmError}</span>}
           </div>
         </div>
+        {report?.schema_version && (
+          <div className="mt-3 text-xs text-slate">证据版本：{report.schema_version}</div>
+        )}
       </section>
 
       {report && (
@@ -175,12 +280,6 @@ export default function ReportsPage() {
           <div className="md:col-span-3">
             <div className="mb-4 flex flex-wrap items-center gap-3">
               <button
-                className={`pill ${viewMode === "raw" ? "bg-ink text-white" : ""}`}
-                onClick={() => setViewMode("raw")}
-              >
-                原始报告
-              </button>
-              <button
                 className={`pill ${viewMode === "deepseek" ? "bg-ink text-white" : ""}`}
                 onClick={() => setViewMode("deepseek")}
                 disabled={!hasDeepseek}
@@ -192,9 +291,8 @@ export default function ReportsPage() {
                 <span className="text-xs text-slate">模型：{report.llm_model}</span>
               )}
             </div>
-            {viewMode === "raw" && <ReportViewer content={report.report_md} />}
             {viewMode === "deepseek" && hasDeepseek && (
-              <ReportViewer content={report.report_md_llm || ""} />
+              <ReportViewer content={stripEvidenceMarkers(report.report_md_llm || "")} />
             )}
           </div>
         </section>

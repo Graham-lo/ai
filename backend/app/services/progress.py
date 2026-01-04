@@ -4,8 +4,15 @@ from collections import defaultdict
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.db.models import BybitTradeLog
 from app.schemas.ledger import Cashflow, Fill
-from app.services.metrics import compute_daily_series, compute_metrics, max_drawdown
+from app.services.metrics import (
+    compute_daily_series,
+    compute_daily_series_from_trade_logs,
+    compute_metrics,
+    compute_metrics_from_trade_logs,
+    max_drawdown,
+)
 
 
 @dataclass
@@ -29,6 +36,23 @@ def monthly_aggregate(fills: list[Fill], cashflows: list[Cashflow]) -> list[Mont
     for key in sorted(grouped_fills.keys() | grouped_cash.keys()):
         metrics = compute_metrics(grouped_fills.get(key, []), grouped_cash.get(key, []))
         daily_series = compute_daily_series(grouped_fills.get(key, []), grouped_cash.get(key, []))
+        mdd = max_drawdown([v.net_after_fees_and_funding for v in daily_series.values()])
+        metrics["max_drawdown"] = float(mdd)
+        summaries.append(MonthlySummary(month=key, metrics=metrics))
+    return summaries
+
+
+def monthly_aggregate_from_trade_logs(trade_logs: list[BybitTradeLog]) -> list[MonthlySummary]:
+    grouped: dict[str, list[BybitTradeLog]] = defaultdict(list)
+
+    for row in trade_logs:
+        key = row.ts_utc.strftime("%Y-%m")
+        grouped[key].append(row)
+
+    summaries = []
+    for key in sorted(grouped.keys()):
+        metrics = compute_metrics_from_trade_logs(grouped.get(key, []))
+        daily_series = compute_daily_series_from_trade_logs(grouped.get(key, []))
         mdd = max_drawdown([v.net_after_fees_and_funding for v in daily_series.values()])
         metrics["max_drawdown"] = float(mdd)
         summaries.append(MonthlySummary(month=key, metrics=metrics))
@@ -76,6 +100,30 @@ def detect_progress(monthly: list[MonthlySummary]) -> dict:
 
 def rolling_compare(fills: list[Fill], cashflows: list[Cashflow], window_days: int) -> dict:
     daily = compute_daily_series(fills, cashflows)
+    dates = sorted(daily.keys())
+    if len(dates) < window_days * 2:
+        return {"status": "insufficient_data"}
+
+    def sum_window(start: int, end: int) -> Decimal:
+        total = Decimal("0")
+        for d in dates[start:end]:
+            total += daily[d].net_after_fees
+        return total
+
+    recent = sum_window(-window_days, None)
+    prev = sum_window(-window_days * 2, -window_days)
+
+    status = "flat"
+    if recent > prev:
+        status = "improved"
+    elif recent < prev:
+        status = "deteriorated"
+
+    return {"status": status, "recent": float(recent), "previous": float(prev)}
+
+
+def rolling_compare_from_trade_logs(trade_logs: list[BybitTradeLog], window_days: int) -> dict:
+    daily = compute_daily_series_from_trade_logs(trade_logs)
     dates = sorted(daily.keys())
     if len(dates) < window_days * 2:
         return {"status": "insufficient_data"}

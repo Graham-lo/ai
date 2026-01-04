@@ -31,6 +31,10 @@ export type ReportRun = {
   report_md: string;
   report_md_llm?: string | null;
   chart_spec_json?: string | null;
+  facts_path?: string | null;
+  evidence_path?: string | null;
+  evidence_json?: Record<string, any> | null;
+  schema_version?: string | null;
   llm_model?: string | null;
   llm_generated_at?: string | null;
   llm_status?: string | null;
@@ -55,4 +59,9 @@ export type TransactionLogEntry = {
   OrderId: string;
   TradeId: string;
   Time: string;
+};
+
+export type MonthlyAttributionResult = {
+  report_md: string;
+  months: string[];
 };

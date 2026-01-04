@@ -13,6 +13,6 @@
     "realized_pnl": true
   },
   "notes": [
-    "OKX 适配器为 stub，需补全 REST 签名与接口映射。"
+    "请使用只读权限，并确保 Passphrase 正确。"
   ]
 }

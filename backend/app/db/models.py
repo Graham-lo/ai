@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import BYTEA, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -85,6 +85,105 @@ class Cashflow(Base):
     )
 
 
+class BybitTradeLog(Base):
+    __tablename__ = "bybit_trade_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("accounts.id"), index=True)
+    exchange_id: Mapped[str] = mapped_column(String(50), index=True)
+    account_type: Mapped[str] = mapped_column(String(30))
+    currency: Mapped[str] = mapped_column(String(20))
+    contract: Mapped[str] = mapped_column(String(50), index=True)
+    type: Mapped[str] = mapped_column(String(30), index=True)
+    direction: Mapped[str] = mapped_column(String(20))
+    quantity: Mapped[str] = mapped_column(String(50))
+    position: Mapped[str] = mapped_column(String(50))
+    filled_price: Mapped[str] = mapped_column(String(50))
+    funding: Mapped[str] = mapped_column(String(50))
+    fee_paid: Mapped[str] = mapped_column(String(50))
+    cash_flow: Mapped[str] = mapped_column(String(50))
+    change: Mapped[str] = mapped_column(String(50))
+    wallet_balance: Mapped[str] = mapped_column(String(50))
+    action: Mapped[str] = mapped_column(String(30))
+    order_id: Mapped[str] = mapped_column(String(120))
+    trade_id: Mapped[str] = mapped_column(String(120))
+    ts_utc: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+    __table_args__ = (
+        UniqueConstraint("account_id", "trade_id", "ts_utc", "type", "action", name="uq_bybit_trade_log"),
+    )
+
+
+class MarketKline(Base):
+    __tablename__ = "market_klines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(50), index=True)
+    interval: Mapped[str] = mapped_column(String(10), index=True)
+    open_time: Mapped[int] = mapped_column(BigInteger, index=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    volume: Mapped[float] = mapped_column(Float)
+    close_time: Mapped[int] = mapped_column(BigInteger)
+    quote_volume: Mapped[float] = mapped_column(Float)
+    trades: Mapped[int] = mapped_column(BigInteger)
+    taker_buy_base: Mapped[float] = mapped_column(Float)
+    taker_buy_quote: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "interval", "open_time", name="uq_market_klines"),
+    )
+
+
+class MarketMarkKline(Base):
+    __tablename__ = "market_mark_klines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(50), index=True)
+    interval: Mapped[str] = mapped_column(String(10), index=True)
+    open_time: Mapped[int] = mapped_column(BigInteger, index=True)
+    open: Mapped[float] = mapped_column(Float)
+    high: Mapped[float] = mapped_column(Float)
+    low: Mapped[float] = mapped_column(Float)
+    close: Mapped[float] = mapped_column(Float)
+    close_time: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("symbol", "interval", "open_time", name="uq_market_mark_klines"),
+    )
+
+
+class MarketFundingRate(Base):
+    __tablename__ = "market_funding_rates"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(50), index=True)
+    funding_time: Mapped[int] = mapped_column(BigInteger, index=True)
+    funding_rate: Mapped[float] = mapped_column(Float)
+    mark_price: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("symbol", "funding_time", name="uq_market_funding"),)
+
+
+class MarketOpenInterest(Base):
+    __tablename__ = "market_open_interest"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    symbol: Mapped[str] = mapped_column(String(50), index=True)
+    period: Mapped[str] = mapped_column(String(10), index=True)
+    timestamp: Mapped[int] = mapped_column(BigInteger, index=True)
+    sum_open_interest: Mapped[float] = mapped_column(Float)
+    sum_open_interest_value: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (UniqueConstraint("symbol", "period", "timestamp", name="uq_market_oi"),)
+
+
 class ReportRun(Base):
     __tablename__ = "report_runs"
 
@@ -99,6 +198,10 @@ class ReportRun(Base):
     report_md: Mapped[str] = mapped_column(Text)
     report_md_llm: Mapped[str | None] = mapped_column(Text)
     chart_spec_json: Mapped[str | None] = mapped_column(Text)
+    facts_path: Mapped[str | None] = mapped_column(Text)
+    evidence_path: Mapped[str | None] = mapped_column(Text)
+    evidence_json: Mapped[dict | None] = mapped_column(JSONB)
+    schema_version: Mapped[str | None] = mapped_column(String(20))
     llm_model: Mapped[str | None] = mapped_column(String(50))
     llm_generated_at: Mapped[datetime | None] = mapped_column(DateTime)
     llm_status: Mapped[str | None] = mapped_column(String(20))
