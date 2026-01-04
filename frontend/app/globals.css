@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background: #f3f2ee;
+}
+
+a {
+  text-decoration: none;
+}
+
+@layer components {
+  .card-soft {
+    @apply rounded-3xl bg-white/80 shadow-lg shadow-ink/5 ring-1 ring-ink/5;
+  }
+
+  .card-plain {
+    @apply rounded-2xl bg-white shadow-md shadow-ink/5 ring-1 ring-ink/5;
+  }
+
+  .btn-primary {
+    @apply rounded-full bg-ink px-5 py-2 text-sm text-white shadow-md shadow-ink/20 transition hover:-translate-y-0.5 hover:shadow-lg;
+  }
+
+  .btn-ghost {
+    @apply rounded-full border border-ink/15 bg-white px-5 py-2 text-sm text-ink shadow-sm shadow-ink/10 transition hover:-translate-y-0.5 hover:bg-haze;
+  }
+
+  .pill {
+    @apply rounded-full px-3 py-1 text-xs;
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "exchange_id": "okx",
+  "display_name": "OKX",
+  "auth_fields": [
+    {"name": "api_key", "label": "API Key", "type": "string", "required": true, "secret": false},
+    {"name": "api_secret", "label": "API Secret", "type": "string", "required": true, "secret": true},
+    {"name": "passphrase", "label": "Passphrase", "type": "string", "required": true, "secret": true}
+  ],
+  "account_types": ["spot", "linear", "inverse"],
+  "capabilities": {
+    "maker_taker": true,
+    "funding": true,
+    "realized_pnl": true
+  },
+  "notes": [
+    "OKX 适配器为 stub，需补全 REST 签名与接口映射。"
+  ]
+}

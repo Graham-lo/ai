@@ -1,0 +1,17 @@
+{
+  "exchange_id": "bybit",
+  "display_name": "Bybit",
+  "auth_fields": [
+    {"name": "api_key", "label": "API Key", "type": "string", "required": true, "secret": false},
+    {"name": "api_secret", "label": "API Secret", "type": "string", "required": true, "secret": true}
+  ],
+  "account_types": ["spot", "linear", "inverse"],
+  "capabilities": {
+    "maker_taker": true,
+    "funding": true,
+    "realized_pnl": true
+  },
+  "notes": [
+    "Use read-only API keys and whitelist IPs in Bybit"
+  ]
+}

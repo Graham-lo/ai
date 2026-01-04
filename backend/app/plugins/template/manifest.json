@@ -1,0 +1,15 @@
+{
+  "exchange_id": "template",
+  "display_name": "Template",
+  "auth_fields": [
+    {"name": "api_key", "label": "API Key", "type": "string", "required": true, "secret": false},
+    {"name": "api_secret", "label": "API Secret", "type": "string", "required": true, "secret": true}
+  ],
+  "account_types": ["spot"],
+  "capabilities": {
+    "maker_taker": true,
+    "funding": false,
+    "realized_pnl": false
+  },
+  "notes": ["Template adapter"]
+}

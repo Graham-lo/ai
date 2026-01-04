@@ -1,0 +1,39 @@
+version: "3.9"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: tradecheck
+    ports:
+      - "15432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg://app:app@postgres:5432/tradecheck
+      MASTER_KEY: ${MASTER_KEY:-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=}
+      API_TOKEN: ${API_TOKEN:-devtoken}
+      APP_TIMEZONE: Asia/Singapore
+      BASE_CURRENCY: USDT
+    depends_on:
+      - postgres
+    ports:
+      - "18000:8000"
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_BASE: http://localhost:18000
+        NEXT_PUBLIC_API_TOKEN: ${API_TOKEN:-devtoken}
+    environment:
+      NEXT_PUBLIC_API_BASE: http://localhost:18000
+      NEXT_PUBLIC_API_TOKEN: ${API_TOKEN:-devtoken}
+    depends_on:
+      - backend
+    ports:
+      - "13000:3000"
+volumes:
+  pgdata:
